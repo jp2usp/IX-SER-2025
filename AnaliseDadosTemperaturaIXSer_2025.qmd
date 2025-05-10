@@ -1,0 +1,174 @@
+---
+title: "Análise de Dados de Temperatura"
+format: html
+editor: visual
+---
+
+
+```{r}
+
+rm(list = ls())
+
+```
+```{r}
+
+#bibliotecas
+#install.packages("readxl")
+library(readxl)#leitura de planilhas
+library(ggplot2)# graficos
+library(psych)
+
+#Detectando pasta do .qmd. 
+file=getwd()
+file
+
+#dados <- read_excel("dados eia.xlsx")
+dados=read_excel("Controle de Parâmetros de Motor_IX_SER_2025.xlsx")
+
+head(dados)
+names(dados)
+```
+
+```{r}
+dados$`NG MÁXIMA[%NG]`=as.numeric(dados$`NG MÁXIMA[%NG]`)
+
+```
+
+## Estatísticas Descritivas
+
+Sumário Estatístico
+
+```{r}
+
+df2=na.omit(dados)
+summary(df2)
+
+```
+
+Estatísticas Descritivas com "psych"
+
+```{r}
+library(psych)
+#antes da substituição
+describe(df2)
+
+#redefinindo pq valor 9805.0 foi encontrado 
+df2$`NG MÁXIMA[%NG]`[which.max(df2$`NG MÁXIMA[%NG]`)]=98.05
+
+#estatísticas após substituiçaõ
+describe(df2)
+```
+
+
+## Correlações
+
+```{r,echo=FALSE, fig.align='center',out.width="150%",warning=FALSE,message=FALSE}
+
+library(GGally)
+library(ggplot2)
+library(dplyr)
+
+# Função para criar histogramas personalizados
+diag_hist <- function(data, mapping, ...){
+  p <- ggplot(data = data, mapping = mapping) +
+    geom_histogram(fill = "blue",  fill = "blue", color = "black", alpha = 0.5)+
+    theme_minimal()
+  return(p)  # Use 'return' em vez de 'print'
+}
+
+# Função para criar gráficos de dispersão com linha de ajuste laranja
+lower_lm <- function(data, mapping, ...){
+  p <- ggplot(data = data, mapping = mapping) +
+    geom_point() +
+    geom_smooth(method = "lm", formula = y ~ x, color = "orange", se = FALSE) +
+    theme_minimal()
+  return(p)  # Use 'return' em vez de 'print'
+}
+
+```
+
+### Análise de outliers
+
+
+
+```{r}
+# Carregar a biblioteca necessária para o Teste de Grubbs
+library(outliers)
+
+# Função para detectar e remover outliers usando o Teste de Grubbs
+remover_outliers_grubbs <- function(df, alpha = 0.05) {
+  # Loop sobre cada coluna do data frame
+  for (col in names(df)) {
+    # Aplicar o Teste de Grubbs para detectar outliers
+    while (TRUE) {
+      teste <- grubbs.test(df[[col]])
+      
+      # Verificar se o valor-p é menor que o nível de significância
+      if (teste$p.value < alpha) {
+        # Identificar o outlier
+        outlier <- as.numeric(strsplit(teste$alternative, " ")[[1]][3])
+        
+        # Remover o outlier do data frame
+        df <- df[df[[col]] != outlier, ]
+      } else {
+        break  # Sair do loop se não houver mais outliers
+      }
+    }
+  }
+  
+  # Retornar o data frame sem as linhas que contêm outliers
+  return(df)
+}
+
+
+dados_sem_outliers <- remover_outliers_grubbs(df2)
+
+```
+
+```{r}
+# Salve o gráfico ggpairs em uma variável
+plot <- ggpairs(dados_sem_outliers, 
+        lower = list(continuous = lower_lm),
+        diag = list(continuous = diag_hist))
+
+# Imprima o gráfico
+print(plot)
+
+```
+
+### Análise de Correlações
+
+
+# Análise de Regressão Múltipla
+
+```{r}
+dados=dados_sem_outliers
+
+modelo <- lm(`PICO DE T5[ºC]` ~ ., data = dados)
+summary(modelo)
+
+modelo_refinado <- lm(`PICO DE T5[ºC]` ~ `TAE [ºC]` +`ESTABILIZAÇÃO[%NG]`, data = dados)
+summary(modelo_refinado)
+
+```
+
+```{r}
+#analise dos residuais
+x=residuals(modelo_refinado)
+
+df <- data.frame(xres, y = seq(length(xres)))
+require(ggplot2)
+ggplot(data=df,aes(x = xres)) +geom_density(adjust=1.5, alpha=.4)+
+   geom_histogram(aes(y = ..density..),  fill = "blue", color = "black", alpha = 0.5)+
+       #geom_boxplot() +
+       #geom_point(aes(x = 1, y = 1500),                  colour="blue",size = 8, shape = "+") +
+#geom_point(aes(x = 1, y = mean(x)),colour="red",                  size = 8,shape = "+") +
+       theme_bw() +
+       theme(axis.title = element_text(face = "bold")) +
+       theme(axis.text = element_text(face = "bold"))#+coord_flip()
+
+shapiro.test(x)
+
+
+```
+
